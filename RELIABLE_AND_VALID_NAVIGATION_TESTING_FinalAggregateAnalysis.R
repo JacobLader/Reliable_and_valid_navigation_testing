@@ -1,5 +1,7 @@
 #### setup (RUN ONCE PER SESSION) ####
 
+#NOTE: Cogmaps (cognitive maps) was the name of the study in which the Square Town paradigm was used. Here these names are used interchangeably
+
 #set working directory
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
@@ -11,14 +13,17 @@ library(lavaan) #for CFA
 library(lsr) #for effect size of the predictor on outcome variable in lm
 library(effectsize) #for effect size of the predictor on outcome variable in lm
 library(gvlma) #checking lm assumptions
+library(stargazer) #stargzer tables with confidence intervals
 #load libraries for special plotting:
 library(corrplot) #for plotting correlation plots
 library(car) #added av plots
 library(jtools) #for linear regression visualizations
-library(factoextra) #for special pca plots
+library(factoextra) #for special pca plots (not used here)
 library(semPlot) #for CFA plotting
+library(performance) #checking multicolinearity of models (VIF)
 
 #important setup step:
+#this makes the corr plots look nice!
 
 #run:
 trace(corrplot, edit=TRUE)
@@ -43,17 +48,15 @@ trace(corrplot, edit=TRUE)
 
 #### loading in data frames ####
 
-#read in csv and create data frames
+#read in csv and create main data frame
 MoNav_df <- read.csv(file = 'RELIABLE_AND_VALID_NAVIGATION_TESTING_Aggregate_Data.csv', header = TRUE)
 
 #### cleaning and creating main data frames ####
 
-#we need to add individual and less-identifiable participant IDs to the main df
-
 #determine number of rows in MoNav_df
 n <- nrow(MoNav_df)
 
-# Add a new column called "subject" with increment values
+#Add a new column called "subject" with increment values
 MoNav_df$subject <- 1:n
 
 #this next part is subject to change based on data frame formatting:
@@ -63,8 +66,8 @@ MoNav_df <- MoNav_df[, !colnames(MoNav_df) %in% c("day_2", "day_1")]
 
 #now we want to ensure variables are ordered how we want, namely that each paradigm's data is grouped together:
 #hint: use summary function to get the names and then copy paste in the preferred order:
-MoNav_df <- MoNav_df[, c("subject", "ID", "TT_group",
-                         "CMJRD_mean_error", "CM_efficiency_score_all", 
+MoNav_df <- MoNav_df[, c("subject", "ID", "Round", "TT_group",
+                         "CMJRD_mean_acc", "CMJRD_mean_error", "CM_efficiency_score_all", 
                          "CM_MB_Euclidian_Rsqr",
                          "TT_JRD_Avrg_Angular_Error", "TT_Route_Efficiency", "TT_MB_Blank_Euclidian_Rsqr", "TT_MB_Outline_Euclidian_Rsqr",
                          "VS_Diff_JRD_Avrg_Angular_Error", "VS_Same_JRD_Avrg_Angular_Error", "VS_MB_Rsqr",
@@ -82,19 +85,11 @@ MoNav_df$VS_Same_JRD_Avrg_Angular_Error <- (MoNav_df$VS_Same_JRD_Avrg_Angular_Er
 #### Create other data frames here: ####
 
 #Numeric Data frame
-Quant_MoNav_df <- MoNav_df[, c(
-                               "CMJRD_mean_error", "CM_efficiency_score_all",
+Quant_MoNav_df <- MoNav_df[, c("CMJRD_mean_error", "CM_efficiency_score_all",
                                "CM_MB_Euclidian_Rsqr",
                                "TT_JRD_Avrg_Angular_Error", "TT_Route_Efficiency", "TT_MB_Blank_Euclidian_Rsqr",
-                               "VS_Diff_JRD_Avrg_Angular_Error", "VS_Same_JRD_Avrg_Angular_Error", "VS_MB_Rsqr",
-                               "SDT_Style_MRT", "SBSOD_Avrg", "PTT_A", "NSQ",
-                               "Age", "KBIT_IQ")]
-
-#create a pca df with JRD group now too:
-pca_Quant_MoNav_df <- Quant_MoNav_df[, c("CMJRD_mean_error", "CM_efficiency_score_all",
-                                         "CM_MB_Euclidian_Rsqr",
-                                         "TT_JRD_Avrg_Angular_Error", "TT_Route_Efficiency", "TT_MB_Blank_Euclidian_Rsqr",
-                                         "VS_Diff_JRD_Avrg_Angular_Error", "VS_Same_JRD_Avrg_Angular_Error", "VS_MB_Rsqr", "VS_JRD_Group")]
+                               "VS_Diff_JRD_Avrg_Angular_Error", "VS_Same_JRD_Avrg_Angular_Error","VS_MB_Rsqr",
+                               "SDT_Style_MRT","SBSOD_Avrg", "PTT_A", "NSQ", "Age", "KBIT_IQ")]
 
 #### preliminary t.tests for cleaning data ####
 
@@ -134,7 +129,7 @@ hist(Quant_MoNav_df$NSQ)
 
 #other
 hist(Quant_MoNav_df$KBIT_IQ)
-hist(Quant_MoNav_df$Age)
+hist(Quant_MoNav_df$Age) #we visualize this better later so it is non-essential here
 
 #### making z-score composite data frames ####
 
@@ -282,13 +277,11 @@ ggplot(MoNav_df, aes(x = Age, fill = Gender)) +
 #get quant descriptives:
 Quant_descriptives_df <- describe(Quant_MoNav_df)
 
-omega(Quant_MoNav_df[,c(2,3,6,8:13)])
-
 #### Create partial correlation matrices ####
 
 #create a partial correlation matrix while controlling for age KBIT IQ
 #KBIT-IQ must be last with this method,though you can also do this by specifying variables
-#I'm pretty sure that the way I'm doing this now requires the pcor.test variables to be specified by numeric index
+#The way I'm doing this now requires the pcor.test variables to be specified by numeric index
 #Initialize the matrix to store partial correlation coefficients
 pcor_matrix_IQ <- matrix(NA, ncol = ncol(Quant_MoNav_df)-2, nrow = ncol(Quant_MoNav_df)-2)
 #Loop through each pair of variables
@@ -843,18 +836,20 @@ pcor.test(Quant_MoNav_df$PTT_A, Quant_MoNav_df$TT_JRD_Avrg_Angular_Error, Quant_
 pcor.test(Quant_MoNav_df$SDT_Style_MRT, Quant_MoNav_df$TT_MB_Blank_Euclidian_Rsqr, Quant_MoNav_df[,c("PTT_A", "Age", "KBIT_IQ")])
 
 #### create partial correlation matrices for Z-standardized composite scores ####
+#add non-standardized age to dataframe
+comp_bind <- cbind(comp_bind, Age = Quant_MoNav_df$Age)
 
 #Initialize the matrix to store partial correlation coefficients
-comp_pcor_matrix_IQ <- matrix(NA, ncol = ncol(comp_bind)-1, nrow = ncol(comp_bind)-1)
+comp_pcor_matrix_IQ <- matrix(NA, ncol = ncol(comp_bind)-2, nrow = ncol(comp_bind)-2)
 #Loop through each pair of variables
-for (i in 1:(ncol(comp_bind)-1)) {
-  for (j in 1:(ncol(comp_bind)-1)) {
+for (i in 1:(ncol(comp_bind)-2)) {
+  for (j in 1:(ncol(comp_bind)-2)) {
     if (i == j) {
       #Set diagonal elements to 1
       comp_pcor_matrix_IQ[i, j] <- 1
     } else if (i < j) {
       #Compute partial correlation using pcor function, unlike previously where we used pcor.test
-      comp_partial_cor <- pcor(comp_bind[, c(i, j, ncol(comp_bind))])
+      comp_partial_cor <- pcor(comp_bind[, c(i, j, (ncol(comp_bind)-1), ncol(comp_bind))])
       #Assign the estimate to the corresponding cells in the matrix
       comp_pcor_matrix_IQ[i, j] <- comp_partial_cor$estimate[1,2]
       #Since the matrix is symmetric, assign the same value to the symmetric cell
@@ -869,16 +864,16 @@ colnames(comp_pcor_matrix_IQ) <- colnames(comp_bind)[1:nrow(comp_pcor_matrix_IQ)
 
 #calculate significance values and create a matrix
 #Initialize the matrix to store p-values
-comp_testRes <- matrix(NA, ncol = ncol(comp_bind)-1, nrow = ncol(comp_bind)-1)
+comp_testRes <- matrix(NA, ncol = ncol(comp_bind)-2, nrow = ncol(comp_bind)-2)
 #Loop through each pair of variables
-for (i in 1:(ncol(comp_bind)-1)) {
-  for (j in 1:(ncol(comp_bind)-1)) {
+for (i in 1:(ncol(comp_bind)-2)) {
+  for (j in 1:(ncol(comp_bind)-2)) {
     if (i == j) {
       #Set diagonal elements to 1
       comp_testRes[i, j] <- 1
     } else if (i < j) {
       #Compute partial correlation using pcor function
-      comp_partial_cor_test_res <- pcor(comp_bind[, c(i, j, ncol(comp_bind))])
+      comp_partial_cor_test_res <- pcor(comp_bind[, c(i, j, (ncol(comp_bind)-1), ncol(comp_bind))])
       #Assign the p-value to the corresponding cells in the matrix
       comp_testRes[i, j] <- comp_partial_cor_test_res$p.value[1,2]
       #Since the matrix is symmetric, assign the same value to the symmetric cell
@@ -921,201 +916,283 @@ corrplot(comp_pcor_matrix_IQ,
          bg = "azure4",
          diag = FALSE)
 
-#### Cog Maps  Rate of Change ####
-
-CM_Route_Efficiency_df <- MoNav_df[,c(1,8:9)]
-
-#Convert the data from wide to long format
-CM_Route_Efficiency_df <- pivot_longer(CM_Route_Efficiency_df, cols = c(CM_efficiency_score_2_1, CM_efficiency_score_2_2), 
-                        names_to = "Round", 
-                        values_to = "Score")
-
-# Create line plot for each particiapant
-ggplot(CM_Route_Efficiency_df, aes(x = Round, y = Score, group = subject, color = subject)) +
-  geom_line() +
-  geom_point(size = 3) +
-  geom_text(aes(label = Score), vjust = -0.5, hjust = 1) +
-  labs(x = "Trial", y = "Eficiency Score", color = " ") +
-  theme_minimal() +
-  scale_x_discrete(labels = c("CM_efficiency_score_2_1" = "Test 1", "CM_efficiency_score_2_2" = "Test 2")) +
-  ggtitle("Test 1 v Test 2 on Eficiency Score")
-
 #### get data frame for factor analysis ####
 
-Quant_MoNav_df <- Quant_MoNav_df[,c(2,3,6,8:14)]
-Quant_MoNav_df <- Quant_MoNav_df[,c(1:9)]
+#first we just want navigation tasks:
+Quant_MoNav_df <- Quant_MoNav_df[,c(2,3,6,8:13)]
 
-#get partial correlation matrix for factor analysis (may not be needed):
-fa_pcor_matrix_IQ<- pcor_matrix_IQ[c(2,3,6,8:13),c(2,3,6,8:13)]
-colnames(fa_pcor_matrix_IQ) <- c("Square Town Pointing", "Square Town Efficiency", "Square Town Map Building",
-                                 "Temple Tour Pointing", "Temple Tour Efficiency", "Temple Tour Map Building",
-                                 "SILCton Between Route Pointing", "SILCton Within Route Pointing", "SILCton Map Building")
-rownames(fa_pcor_matrix_IQ) <- c("Square Town Pointing", "Square Town Efficiency", "Square Town Map Building",
-                                 "Temple Tour Pointing", "Temple Tour Efficiency", "Temple Tour Map Building",
-                                 "SILCton Between Route Pointing", "SILCton Within Route Pointing", "SILCton Map Building")
+#### normalize Quant data frames ####
 
-#get correlation matrix for factor analysis (may not be needed either): <- this is the same as if you did not created a matrix.
-fa_cor_matrix <- cor(Quant_MoNav_df, method = "pearson")
-colnames(fa_cor_matrix) <- c("Square Town Pointing", "Square Town Efficiency", "Square Town Map Building",
-                                 "Temple Tour Pointing", "Temple Tour Efficiency", "Temple Tour Map Building",
-                                 "SILCton Between Route Pointing", "SILCton Within Route Pointing", "SILCton Map Building")
-rownames(fa_cor_matrix) <- c("Square Town Pointing", "Square Town Efficiency", "Square Town Map Building",
-                                 "Temple Tour Pointing", "Temple Tour Efficiency", "Temple Tour Map Building",
-                                 "SILCton Between Route Pointing", "SILCton Within Route Pointing", "SILCton Map Building")
+#normalize:
+Quant_MoNav_df <- scale(Quant_MoNav_df)
+
+#### CFA 1 factor model ####
+#get covariance matrices
+cov_mat1 <- cov(Quant_MoNav_df)
+cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
+
+#Define model to be estimated
+m1 <- 'Factor1 =~ NA*CMJRD_mean_error + CM_efficiency_score_all + CM_MB_Euclidian_Rsqr + VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr + TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr
+            Factor1 ~~ 1*Factor1'
+
+#Estimate specified model
+m1_fit <- cfa(m1, Quant_MoNav_df, mimic = "Mplus")
+
+#Summary of fit information
+fitMeasures(m1_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", 
+                      "rmsea.ci.lower", "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
+
+#Return Coefficients
+m1_fit_c <- parameterEstimates(m1_fit) 
+
+m1_fit_sc <-parameterEstimates(m1_fit, standardized = T)
+
+#Standardized coefficients
+semPaths(m1_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black", 
+         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
+
+#### CFA 2 factor model ####
+#Navigation Environment: (tasks reflect similar performance, differing by environment type)
+#virtual environments vs real world (Virtual SILCton and Square Town vs Temple Tour)
+#get covariance matrices
+cov_mat1 <- cov(Quant_MoNav_df)
+cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
+
+#Define model to be estimated
+m2 <- 'Factor1 =~ NA*CMJRD_mean_error + CM_efficiency_score_all + CM_MB_Euclidian_Rsqr + VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
+            Factor2 =~ NA*TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr
+            Factor1 ~~ 1*Factor1
+            Factor2 ~~ 1*Factor2'
+
+#Estimate specified model
+m2_fit <- cfa(m2, Quant_MoNav_df, mimic = "Mplus")
+
+#Summary of fit information
+fitMeasures(m2_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", 
+                      "rmsea.ci.lower", "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
+
+#Return Coefficients
+m2_fit_c <- parameterEstimates(m2_fit) 
+
+m2_fit_sc <-parameterEstimates(m2_fit, standardized = T)
+
+#Standardized coefficients
+semPaths(m2_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black", 
+         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
+
+#### CFA 2 factor model ####
+#(gridded vs non-gridded)
+#get covariance matrices
+cov_mat1 <- cov(Quant_MoNav_df)
+cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
+
+#Define model to be estimated
+m3 <- 'Factor1 =~ NA*CMJRD_mean_error + CM_efficiency_score_all + CM_MB_Euclidian_Rsqr + TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr
+            Factor2 =~ NA*VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
+            Factor1 ~~ 1*Factor1
+            Factor2 ~~ 1*Factor2'
+
+#Estimate specified model
+m3_fit <- cfa(m3, Quant_MoNav_df, mimic = "Mplus")
+
+#Summary of fit information
+fitMeasures(m3_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", 
+                      "rmsea.ci.lower", "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
+
+#Return Coefficients
+m3_fit_c <- parameterEstimates(m3_fit) 
+
+m3_fit_sc <-parameterEstimates(m3_fit, standardized = T)
+
+#Standardized coefficients
+semPaths(m3_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black", 
+         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
+
+#### CFA 3 factor model ####
+#Navigation Task (different environments reflect similar performance, but differ by task type)
+#get covariance matrices
+cov_mat1 <- cov(Quant_MoNav_df)
+cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
+
+m4 <- 'Factor1 =~ NA*CM_MB_Euclidian_Rsqr + VS_MB_Rsqr + TT_MB_Blank_Euclidian_Rsqr
+            Factor2 =~ NA*TT_JRD_Avrg_Angular_Error + CMJRD_mean_error + VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error
+            Factor3 =~ NA*TT_Route_Efficiency + CM_efficiency_score_all
+            Factor1 ~~ 1*Factor1
+            Factor2 ~~ 1*Factor2
+            Factor3 ~~ 1*Factor3'
+
+m4_fit <- cfa(m4, Quant_MoNav_df, mimic = "Mplus")
+
+fitMeasures(m4_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", 
+                      "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
+
+m4_fit_c <- parameterEstimates(m4_fit) 
+
+m4_fit_sc <-parameterEstimates(m4_fit, standardized = T)
+
+semPaths(m4_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black", 
+         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
+
+#### CFA 3 factor (optimal) model ####
+#(paradigm based)
+#get covariance matrices
+cov_mat1 <- cov(Quant_MoNav_df)
+cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
+
+m5 <- 'Factor1 =~ NA*CM_MB_Euclidian_Rsqr + CMJRD_mean_error + CM_efficiency_score_all
+            Factor2 =~ NA*VS_MB_Rsqr + VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error
+            Factor3 =~ NA*TT_MB_Blank_Euclidian_Rsqr + TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency
+            Factor1 ~~ 1*Factor1
+            Factor2 ~~ 1*Factor2
+            Factor3 ~~ 1*Factor3'
+
+m5_fit <- cfa(m5, Quant_MoNav_df, mimic = "Mplus")
+
+fitMeasures(m5_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", 
+                      "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
+
+m5_fit_c <- parameterEstimates(m5_fit) 
+
+m5_fit_sc <-parameterEstimates(m5_fit, standardized = T)
+
+semPaths(m5_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black", 
+         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
+
+#### add in other factors to test with the optimal model ####
+#we want to add any of the predictors to the factor score df:
+Age_Gender_IQ <- MoNav_df[,c(28,30,46)]
+#make sure gender can be used for CFA:
+Age_Gender_IQ$Gender <- factor(Age_Gender_IQ$Gender, levels = c("Male","Female"))
+Age_Gender_IQ$KBIT_IQ <- scale(Age_Gender_IQ$KBIT_IQ)
+#add in gender, age, IQ:
+Quant_MoNav_df <- cbind(Quant_MoNav_df, Age_Gender_IQ)
+
+#### CFA 3 factor (optimal) model with other factors ####
+#(paradigm based)
+
+m6 <- 'Factor1 =~ NA*CM_MB_Euclidian_Rsqr + CMJRD_mean_error + CM_efficiency_score_all
+            Factor2 =~ NA*VS_MB_Rsqr + VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error
+            Factor3 =~ NA*TT_MB_Blank_Euclidian_Rsqr + TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency
+            Factor1 ~~ 1*Factor1
+            Factor2 ~~ 1*Factor2
+            Factor3 ~~ 1*Factor3
+
+            Factor1 ~ a*Age + b*KBIT_IQ + c*Gender
+            Factor2 ~ d*Age + e*KBIT_IQ + f*Gender
+            Factor3 ~ g*Age + h*KBIT_IQ + i*Gender'
+
+m6_fit <- cfa(m6, Quant_MoNav_df, mimic = "Mplus")
+
+fitMeasures(m6_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", 
+                      "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
+
+m6_fit_c <- parameterEstimates(m6_fit) 
+
+m6_fit_sc <-parameterEstimates(m6_fit, standardized = T)
+
+semPaths(m6_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=.25,edge.color="black", 
+         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
+
+#### Power analyses adding CFA model 6 ####
+
+#model for two factors, df = 8
+#minimum comparison that we can do is between two factors to get degrees of freedom for power analysis, N = 85
+m_min <- 'Factor1 =~ NA*CMJRD_mean_error + CM_MB_Euclidian_Rsqr + CM_efficiency_score_all
+           Factor1 ~~ 1*Factor1
+           Factor2 =~ NA*VS_Diff_JRD_Avrg_Angular_Error +VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
+           Factor2 ~~ 1*Factor2'
+
+#3-factor model we care about, df = 24
+m_3f <- 'Factor1 =~ NA*CMJRD_mean_error + CM_MB_Euclidian_Rsqr + CM_efficiency_score_all
+            Factor1 ~~ 1*Factor1
+            Factor2 =~ NA*VS_Diff_JRD_Avrg_Angular_Error +VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
+            Factor2 ~~ 1*Factor2
+            Factor3 =~ NA*TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr
+            Factor3 ~~ 1*Factor3'
+
+#2-factor model ve vs real, df = 25
+m1_2f <- 'Factor1 =~ NA*CMJRD_mean_error + CM_MB_Euclidian_Rsqr + CM_efficiency_score_all+VS_Diff_JRD_Avrg_Angular_Error +VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
+Factor1 ~~ 1*Factor1
+            Factor2 =~ NA*TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr
+            Factor2 ~~ 1*Factor2'
+
+#2-factor model grid vs not grid, df = 25
+m2_2f <- 'Factor1 =~ NA*CMJRD_mean_error + CM_MB_Euclidian_Rsqr + CM_efficiency_score_all+TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr
+Factor1 ~~ 1*Factor1
+            Factor2 =~ NA*VS_Diff_JRD_Avrg_Angular_Error +VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
+            Factor2 ~~ 1*Factor2'
+
+#single factor, df = 25
+m1 <- 'Factor1 =~ NA*CMJRD_mean_error + CM_MB_Euclidian_Rsqr + CM_efficiency_score_all+TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr+VS_Diff_JRD_Avrg_Angular_Error +VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
+Factor1 ~~ 1*Factor1'
+
+#three factor with age, gender, kbit, df = 42
+m6 <- 'Factor1 =~ NA*CM_MB_Euclidian_Rsqr + CMJRD_mean_error + CM_efficiency_score_all
+            Factor2 =~ NA*VS_MB_Rsqr + VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error
+            Factor3 =~ NA*TT_MB_Blank_Euclidian_Rsqr + TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency
+            Factor1 ~~ 1*Factor1
+            Factor2 ~~ 1*Factor2
+            Factor3 ~~ 1*Factor3
+
+            Factor1 ~ a*Age + b*KBIT_IQ + c*Gender
+            Factor2 ~ d*Age + e*KBIT_IQ + f*Gender
+            Factor3 ~ g*Age + h*KBIT_IQ + i*Gender'
 
 
-#### EFA ####
+semPower.getDf(m6) #get degrees of freedom for each model
 
-#Are the data appropriate for factor analysis?
+power <- semPower.aPriori(effect = .15, effect.measure =
+                            'RMSEA', alpha = .05, beta = .20, df = 42) #replace df for degrees of freedom for each type of model
+print(power$requiredN)
 
-KMO(Quant_MoNav_df) # you want MSA to be > .60
-KMO(fa_pcor_matrix_IQ)
-KMO(fa_cor_matrix) #illustrating that this is the same as KMO with the data
+#### set up data frames for linear regression between factor scores and small-scale tasks ####
 
-bartlett.test(Quant_MoNav_df) # you want K to be a large number p should be significant
+#Factor scores from CFA model: https://rdrr.io/cran/lavaan/man/lavPredict.html
 
-#### parallel analysis ####
+#what are the factor scores we use?
+#These come from the optimal model CFA
+#They are the estimated values for the latent variables (Factors) in the model
+#The regression approach shows individuals placement on each factor and comes from:
+#Thurstone, L. L. (1935). The vectors of mind. University of Chicago Press. (pp. 226-231).
+m5_factor_scores <- lavPredict(m5_fit, method = "regression", type = "lv")
 
-#How many factors to retain?
+m5_factor_scores_df <- as.data.frame(m5_factor_scores)
 
-#looking at where it crosses simulated data:
-par_analysis <- fa.parallel(Quant_MoNav_df, fm = "pa", n.iter = 100)
+#we want to add any of the predictors to the factor score df:
+self_and_small_df <- MoNav_df[,c(25,27,23,26,28,30,46)]
+#make sure gender can be used for regression:
+self_and_small_df$Gender  <- factor(self_and_small_df$Gender, levels = c("Male", "Female"))
 
-#looking at factors above 1:
-ev<-eigen(cor(Quant_MoNav_df))
+m5_factor_scores_df <- cbind(m5_factor_scores_df, self_and_small_df)
 
-#Output of parallel analysis only shows a subset of eigenvalues
-#The following creates the full list of eigenvalues
-
-#Read names of variables in the dataframe
-names(par_analysis)
-
-#Organize the variable labels into the same order as the output
-all_par_val <- data.frame(cbind(par_analysis[[1]], par_analysis[[6]], par_analysis[[5]], par_analysis[[2]], par_analysis[[4]], par_analysis[[3]]))
-
-#Rename the columns
-names(all_par_val) <- c(names(par_analysis[1]),
-                        names(par_analysis[6]),
-                        names(par_analysis[5]),
-                        names(par_analysis[2]),
-                        names(par_analysis[4]),
-                        names(par_analysis[3]))
-
-#Compute proportion of variance explained by each component individually
-all_par_val$pro_var_com <- all_par_val$pc.values/3 #divide by number of factors - you can try different numbers at a judgement point 
-#(say if 3 is just above simulation, you can try both 2 and 3)
-
-#should this be fa not pc???
- 
-#Compute proportion of total variance explained by component solutions
-all_par_val$pro_cum_var_com <- cumsum(all_par_val$pro_var_com)
-
-all_par_val
-
-#### Velicer's MAP analysis ####
-vss_map <- vss(Quant_MoNav_df, 3, "varimax", fm = "pc") #second argument is number of components)
-
-#names(vss_map)
-
-#### PCA Function ####
-#A custom function to estimate a PCA for a specific number of components. 
-#This function writes output as new objects into the environment
-#more about oblimin rotation here: https://medium.com/@baogorek/what-happens-when-you-rotate-confirmatory-factor-analysis-loadings-d597811a6870
-
-pca_est <- function(x) {
-  txt.read.in.data <- paste0("df_",formatC(x),"c_oblimin <<- principal(Quant_MoNav_df, ",formatC(x),", rotate = 'oblimin')")
-  eval(parse(text=txt.read.in.data))
-} 
-
-# change df_norm if you want to change df!
-
-#### First part of PCA ####
-#note that many(but not necessarily all) PCA functions scale data for you, 
-#manually normalizing the data before this point may give you weird results.
-#we will normalize it later on
-
-#Create sequence of integers to pass to the function
-comp2 <- seq(1, 2, 1) #second argument is the number of factors 
-comp3 <- seq(1, 3, 1) #trying out 2 and 3 factors
-
-#Execute PCA function for 2 to 3 factor solutions
-pca_sum2 <- lapply(comp2, pca_est)
-pca_sum3 <- lapply(comp3, pca_est)
-
-pca_sum2
-pca_sum3
-
-#factor scores are the subject's score on a factor
-scores2 <- pca_sum2[[2]]$scores #get factor scores that you can use as observed vars in subsequent analysis
-scores3 <- pca_sum3[[3]]$scores 
-
-#### quick break to set up data frames for linear regression between factor scores and small-scale tasks ####
-factor_score3_by_self_and_small_df <- as.data.frame(scores3)
-
-self_and_small_df <- MoNav_df[,c(25,27,23,26,46)]
-
-factor_score3_by_self_and_small_df <- cbind(factor_score3_by_self_and_small_df, self_and_small_df)
-
-#correlations to test for linear relationships
-#check that these are all good linear correlations:
-
-#3 factor:
-factor_score3_by_self_and_small_matrix <- cor(factor_score3_by_self_and_small_df)
-factor_score3_by_self_and_small_testRes <- cor.mtest(factor_score3_by_self_and_small_df)
-
-rownames(factor_score3_by_self_and_small_matrix) <- c("factor 2", "factor 3", "factor 1", "SBSOD", "NSQ", "MRT", "PTT-A", "KBIT-IQ")
-
-colnames(factor_score3_by_self_and_small_matrix) <- c("factor 2", "factor 3", "factor 1", "SBSOD", "NSQ", "MRT", "PTT-A", "KBIT-IQ")
-
-rownames(factor_score3_by_self_and_small_testRes$p) <- c("factor 2", "factor 3", "factor 1", "SBSOD", "NSQ", "MRT", "PTT-A", "KBIT-IQ")
-
-colnames(factor_score3_by_self_and_small_testRes$p) <- c("factor 2", "factor 3", "factor 1", "SBSOD", "NSQ", "MRT", "PTT-A", "KBIT-IQ")
-
-corrplot(factor_score3_by_self_and_small_matrix,
-         method = "number",
-         p.mat = factor_score3_by_self_and_small_testRes$p,
-         insig = "label_sig",
-         sig.level = c(0.001, 0.01, 0.05),
-         pch.cex = 2,
-         pch.col = "#fac228",
-         type = "lower",
-         tl.srt = 45,
-         tl.cex = 1,
-         tl.col = 1,
-         number.cex = 1,
-         cl.cex = 0.5,
-         mar=c(0,0,2,0),
-         col = "white",
-         cl.pos = "n",
-         bg = "#2f4f4f",
-         diag = FALSE)
+#check for missing data:
+levels(m5_factor_scores_df$Gender)
 
 #### box plots for lm####
 #doesn't matter what df small scale tasks come from for this:
-boxplot(factor_score3_by_self_and_small_df$SDT_Style_MRT,ylab = "MRT")
-boxplot(factor_score3_by_self_and_small_df$PTT_A,ylab = "PTT-A")
-boxplot(factor_score3_by_self_and_small_df$NSQ,ylab = "NSQ")
-boxplot(factor_score3_by_self_and_small_df$SBSOD_Avrg,ylab = "SBSOD")
+boxplot(m5_factor_scores_df$SDT_Style_MRT ,ylab = "MRT")
+boxplot(m5_factor_scores_df$PTT_A,ylab = "PTT-A")
+boxplot(m5_factor_scores_df$NSQ,ylab = "NSQ")
+boxplot(m5_factor_scores_df$SBSOD_Avrg,ylab = "SBSOD")
+boxplot(m5_factor_scores_df$Age,ylab = "Age")
+boxplot(m5_factor_scores_df$KBIT_IQ,ylab = "IQ")
 
-boxplot(factor_score3_by_self_and_small_df$TC2,ylab = "SILCton Factor Scores")
-boxplot(factor_score3_by_self_and_small_df$TC3,ylab = "Temple Tour Factor Scores")
-boxplot(factor_score3_by_self_and_small_df$TC1, ylab = "Square Town Factor Scores")
+boxplot(m5_factor_scores_df$Factor2,ylab = "SILCton Factor Scores")
+boxplot(m5_factor_scores_df$Factor3,ylab = "Temple Tour Factor Scores")
+boxplot(m5_factor_scores_df$Factor1, ylab = "Square Town Factor Scores")
 
 #check normality of factors:
-hist(factor_score3_by_self_and_small_df$TC1)
+hist(m5_factor_scores_df$Factor1)
+hist(m5_factor_scores_df$Factor2)
+hist(m5_factor_scores_df$Factor3)
 
-hist(log(factor_score3_by_self_and_small_df$TC1 + 3))
+desc_factor_scores <- describe(m5_factor_scores_df)
 
-hist(factor_score3_by_self_and_small_df$TC2)
-hist(factor_score3_by_self_and_small_df$TC3)
-
-desc_factor_scores <- describe(factor_score3_by_self_and_small_df)
-
-#Linear models for factor scores and small scale scores
+##### Linear models for factor scores and small scale scores ####
 #3 factor:
-lm_model_1 <- lm(scale(log(TC1 + 3)) ~ scale(PTT_A) + scale(SDT_Style_MRT) + scale(NSQ) + scale(SBSOD_Avrg) + scale(KBIT_IQ), data = factor_score3_by_self_and_small_df)
-lm_model_2 <- lm(scale(TC2) ~ scale(PTT_A) + scale(SDT_Style_MRT) + scale(NSQ) + scale(SBSOD_Avrg) + scale(KBIT_IQ), data = factor_score3_by_self_and_small_df)
-lm_model_3 <- lm(scale(TC3) ~ scale(PTT_A) + scale(SDT_Style_MRT) + scale(NSQ) + scale(SBSOD_Avrg) + scale(KBIT_IQ), data = factor_score3_by_self_and_small_df)
+lm_model_1 <- lm(scale(Factor1) ~ scale(PTT_A) + scale(SDT_Style_MRT) + scale(NSQ) + scale(SBSOD_Avrg) + scale(Age) + Gender + scale(KBIT_IQ), data = m5_factor_scores_df)
+lm_model_2 <- lm(scale(Factor2) ~ scale(PTT_A) + scale(SDT_Style_MRT) + scale(NSQ) + scale(SBSOD_Avrg) + scale(Age) + Gender + scale(KBIT_IQ), data = m5_factor_scores_df)
+lm_model_3 <- lm(scale(Factor3) ~ scale(PTT_A) + scale(SDT_Style_MRT) + scale(NSQ) + scale(SBSOD_Avrg) + scale(Age) + Gender + scale(KBIT_IQ), data = m5_factor_scores_df)
 
 #get RSE and R squared:
 summary(lm_model_1)
@@ -1147,278 +1224,36 @@ gvlma(lm_model_1)
 gvlma(lm_model_2)
 gvlma(lm_model_3)
 
-#### Back to PCA! ####
+plot(lm_model_1)
+plot(lm_model_2)
+plot(lm_model_3)
 
-#compute the PCA:
-df.pca <- princomp(Quant_MoNav_df)
-#show the result:
-summary(df.pca)
+#### Check multicollinearity for linear models ####
+#https://rdrr.io/cran/performance/man/check_collinearity.html
 
-#compute the PCA based on partial correlations (don't do this way):
-df.pca_2 <- princomp(fa_pcor_matrix_IQ)
-#show the result based on partial correlations (don't do this way):
-summary(df.pca_2)
+check_collinearity(lm_model_1)
+check_collinearity(lm_model_2)
+check_collinearity(lm_model_3)
 
-#compute the PCA using prcomp with group excluded but in the df:
-df.pca_3 <- princomp(pca_Quant_MoNav_df[, -10],  scale = TRUE)
-#show the result:
-summary(df.pca_3)
+#### Cook's distance ####
+#https://rpubs.com/DragonflyStats/Cooks-Distance
 
-# #factor loadings are the correlation of the original variable with a factor
-# pc_load <- pca_sum2[[2]]$loadings #get factor loadings for the factor congruence analysis
-# 
-# ##Factor congruence across age groups
-# #Given two sets of factor loadings, report their degree of #congruence (vector cosine). Although first reported by Burt #(1948), this is frequently known as the Tucker index of factor congruence.
-# #https://personality-project.org/r/html/factor.congruence.html
-# 
-# #Running PCA
-# #run PCA for each age group df
-# pca_all <- lapply(comp2, pca_est)
-# all_load <- pca_all[[2]]$loadings
-# all_load <- data.frame(cbind(all_load))
-# 
-# #Factor 1 and 2
-# factor.congruence(all_load$TC1, all_load$TC2,digits=3,use="complete",structure=FALSE)
+cooks.distance(lm_model_1)
+cooks.distance(lm_model_2)
+cooks.distance(lm_model_3)
 
-#explore how the first two components relate to each column 
-#using the loadings of each principal component: 
-df.pca$loadings[,1:3]
 
-#Scree Plot with percentage of explained variance (compare to the other
-fviz_eig(df.pca, barfill = "#999", addlabels = TRUE)
+#### Stargazer tables with confidence intervals ####
+#visualize up to 5 models at a time
+#the html output will give you a .html file in your directory that you can open in a browser
+stargazer(lm_model_1,lm_model_2,lm_model_3,type="html",out="linear.models.html",
+          report=('vcsp*'), #reports SE, 95% CI, p values and stars)
+          star.cutoffs=c(.05, .01, .001), 
+          ci = TRUE, ci.level = .95,
+          single.row = TRUE,
+          notes = "95% CI in parentheses.")
 
-#explore aspects used to graph these here:
-var1 <- get_pca_var(df.pca)
-var1
+#there's option to specify covariate and outcome variable names
 
-corrplot(var1$cos2, is.corr=FALSE)
-
-# Graph of the variables
-fviz_pca_var(df.pca, axes = c(1, 2), col.var = "cos2",
-             gradient.cols = c("black", "darkorchid3", "darkorange"),
-             repel = TRUE)
-#Positively correlated variables are grouped together.
-#Negatively correlated variables are positioned on opposite sides of the plot origin (opposed quadrants).
-#The distance between variables and the origin measures the quality of the variables on the factor map. Variables that are away from the origin are well represented on the factor map.
-#The closer a variable is to the circle of correlations, the better its representation on the factor map (and the more important it is to interpret these components)
-#Variables that are closed to the center of the plot are less important for the first components.
-
-#graph of the individuals
-fviz_pca_ind(df.pca_3, axes = c(1, 3), label="none", habillage=pca_Quant_MoNav_df$VS_JRD_Group,
-             addEllipses=TRUE, ellipse.type = "convex", ellipse.level=0.95)
-#individuals that are similar are grouped together on the plot.
-
-#1 and 3 are best represented by dim 1
-#1 and 2 are best represented by dim 2 
-#2 and 3 are best represented by dim 3 
-
-#### normalize Quant data frames ####
-Quant_MoNav_df <- scale(Quant_MoNav_df)
-Quant_MoNav_df <- as.data.frame(Quant_MoNav_df)
-
-#### CFA for EFA/PCA factors ####
-
-#build models with latent factors
-
-#1 factor model
-
-#get covariance matrices
-cov_mat1 <- cov(Quant_MoNav_df) #only pass in continuous vars
-cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
-
-#Define model to be estimated
-m0 <- 'Factor1 =~ NA*CMJRD_mean_error + CM_efficiency_score_all + CM_MB_Euclidian_Rsqr + TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr + VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
-        Factor1 ~~ 1*Factor1'
-
-#Estimate specified model
-
-m0_fit <- cfa(m0, Quant_MoNav_df, mimic = 'Mplus')
-
-#Summary of fit information
-
-fitMeasures(m0_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
-
-#Return Coefficients
-
-m0_fit_c <- parameterEstimates(m0_fit)
-
-m0_fit_sc <-parameterEstimates(m0_fit, standardized = T)
-
-#Visualize model result
-#Raw coefficients
-#semPaths(m1_fit, whatLabels = "par", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black",
-#         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
-
-#Standardized coefficients
-semPaths(m0_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black",
-         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
-
-#model for factor 1
-
-#get covariance matrices
-cov_mat1 <- cov(Quant_MoNav_df) #only pass in continuous vars
-cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
-
-#Define model to be estimated
-m1 <- 'Factor1 =~ NA*CMJRD_mean_error + CM_efficiency_score_all + CM_MB_Euclidian_Rsqr + TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr
-        Factor1 ~~ 1*Factor1'
-
-#+ TT_JRD_Avrg_Angular_Error +
-#VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr + 
-#  TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr + TT_MB_Outline_Euclidian_Rsqr
-
-#Estimate specified model
-
-m1_fit <- cfa(m1, Quant_MoNav_df, mimic = 'Mplus')
-
-#Summary of fit information
-
-fitMeasures(m1_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
-
-#Return Coefficients
-
-m1_fit_c <- parameterEstimates(m1_fit)
-
-m1_fit_sc <-parameterEstimates(m1_fit, standardized = T)
-
-#Visualize model result
-#Raw coefficients
-#semPaths(m1_fit, whatLabels = "par", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black",
-#         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
-
-#Standardized coefficients
-semPaths(m1_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black",
-         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
-
-#model for factor 2
-
-#get covariance matrices
-cov_mat1 <- cov(Quant_MoNav_df)
-cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
-
-#Define model to be estimated
-m2 <- 'Factor2 =~ NA*VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
-        Factor2 ~~ 1*Factor2'
-
-#Estimate specified model
-
-m2_fit <- cfa(m2, Quant_MoNav_df, mimic = 'Mplus')
-
-#Summary of fit information
-
-fitMeasures(m2_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
-
-#Return Coefficients
-
-m2_fit_c <- parameterEstimates(m2_fit) 
-
-m2_fit_sc <-parameterEstimates(m2_fit, standardized = T)
-
-#Visualize model result
-#Raw coefficients
-#semPaths(m2_fit, whatLabels = "par", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black",
-#         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
-
-#Standardized coefficients
-semPaths(m2_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black",
-         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
-
-#put the two models together
-
-m3 <- 'Factor1 =~ NA*CMJRD_mean_error + CM_efficiency_score_all + CM_MB_Euclidian_Rsqr + TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr
-            Factor1 ~~ 1*Factor1
-            Factor2 =~ NA*VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
-            Factor2 ~~ 1*Factor2'
-
-m3_fit <- cfa(m3, Quant_MoNav_df, mimic = "Mplus")
-
-fitMeasures(m3_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
-
-m3_fit_c <- parameterEstimates(m3_fit) 
-
-m3_fit_sc <-parameterEstimates(m3_fit, standardized = T)
-
-semPaths(m3_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black",
-         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
-
-
-#Standardized coefficients
-semPaths(m3_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black",
-         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
-
-#put the three models together
-
-cov_mat1 <- cov(Quant_MoNav_df)
-cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
-
-
-m4 <- 'Factor1 =~ NA*CMJRD_mean_error + CM_efficiency_score_all + CM_MB_Euclidian_Rsqr
-            Factor1 ~~ 1*Factor1
-            Factor2 =~ NA*VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
-            Factor2 ~~ 1*Factor2
-            Factor3 =~ NA*TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr
-            Factor3 ~~ 1*Factor3'
-
-m4_fit <- cfa(m4, Quant_MoNav_df, mimic = "Mplus")
-
-fitMeasures(m4_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
-
-m4_fit_c <- parameterEstimates(m4_fit) 
-
-m4_fit_sc <-parameterEstimates(m4_fit, standardized = T)
-
-semPaths(m4_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=.75,edge.color="black",
-         sizeMan=9,sizeLat=5,fade=FALSE,esize=2,asize=2)
-
-#Standardized coefficients
-semPaths(m4_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=1.25,edge.color="black",
-         sizeMan=10,sizeLat=10,fade=FALSE,esize=2,asize=2)
-
-#### Apriori EFA ####
-
-#2 factors: Navigation Environment: (tasks reflect similar performance, differing by environment type)
-#virtual environments vs real world (Virtual SILCton and Square Town vs Temple Tour)
-
-cov_mat1 <- cov(Quant_MoNav_df)
-cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
-
-m5 <- 'Factor1 =~ NA*CMJRD_mean_error + CM_efficiency_score_all + CM_MB_Euclidian_Rsqr + VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error + VS_MB_Rsqr
-            Factor1 ~~ 1*Factor1
-            Factor2 =~ NA*TT_JRD_Avrg_Angular_Error + TT_Route_Efficiency + TT_MB_Blank_Euclidian_Rsqr
-            Factor2 ~~ 1*Factor2'
-
-m5_fit <- cfa(m5, Quant_MoNav_df, mimic = "Mplus")
-
-fitMeasures(m5_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
-
-m5_fit_c <- parameterEstimates(m5_fit) 
-
-m5_fit_sc <-parameterEstimates(m5_fit, standardized = T)
-
-semPaths(m5_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=.75,edge.color="black",
-         sizeMan=9,sizeLat=5,fade=FALSE,esize=2,asize=2)
-
-#3 factor: Navigation Task (different environments reflect similar performance, but differ by task type)
-
-cov_mat1 <- cov(Quant_MoNav_df)
-cov_mat1[upper.tri(cov_mat1)] <- NA #Means to assign NA to the elements above the diagonal
-
-m6 <- 'Factor1 =~ NA*CM_MB_Euclidian_Rsqr + VS_MB_Rsqr + TT_MB_Blank_Euclidian_Rsqr
-            Factor1 ~~ 1*Factor1
-            Factor2 =~ NA*TT_JRD_Avrg_Angular_Error + CMJRD_mean_error + VS_Diff_JRD_Avrg_Angular_Error + VS_Same_JRD_Avrg_Angular_Error
-            Factor2 ~~ 1*Factor2
-            Factor3 =~ NA*TT_Route_Efficiency + CM_efficiency_score_all
-            Factor3 ~~ 1*Factor3'
-
-m6_fit <- cfa(m6, Quant_MoNav_df, mimic = "Mplus")
-
-fitMeasures(m6_fit, c("npar", "chisq", "df", "pvalue", "cfi", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper", "rmsea.pvalue", "BIC", "AIC")) 
-
-m6_fit_c <- parameterEstimates(m6_fit) 
-
-m6_fit_sc <-parameterEstimates(m6_fit, standardized = T)
-
-semPaths(m6_fit, whatLabels = "std", nCharNodes = 0, rotation = 2, edge.label.cex=.75,edge.color="black",
-         sizeMan=9,sizeLat=5,fade=FALSE,esize=2,asize=2)
 
 
